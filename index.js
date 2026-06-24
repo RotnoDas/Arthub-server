@@ -303,6 +303,60 @@ async function run() {
     });
 
     // Admin Routes for Dashboard
+    app.get('/api/admin/analytics', async (req, res) => {
+      try {
+        const totalUsers = await usersCollection.countDocuments();
+        const totalArtists = await usersCollection.countDocuments({ role: 'artist' });
+        const artworksSold = await artworksCollection.countDocuments({ status: 'sold' });
+        
+        const revenueAggregation = await paymentCollection.aggregate([
+          { $group: { _id: null, totalRevenue: { $sum: { $toDouble: "$amount" } } } }
+        ]).toArray();
+        const totalRevenue = revenueAggregation.length > 0 ? revenueAggregation[0].totalRevenue : 0;
+
+        // Sales Chart (Group by Date)
+        const salesData = await paymentCollection.aggregate([
+          {
+            $group: {
+              _id: { $dateToString: { format: "%Y-%m-%d", date: "$paidAt" } },
+              revenue: { $sum: { $toDouble: "$amount" } }
+            }
+          },
+          { $sort: { _id: 1 } },
+          { $limit: 30 }
+        ]).toArray();
+
+        // Format for Recharts
+        const formattedSalesData = salesData.map(item => ({
+          date: item._id || 'Unknown',
+          revenue: item.revenue
+        }));
+
+        // Category Chart (Group by Category)
+        const categoryData = await artworksCollection.aggregate([
+          { $match: { category: { $exists: true, $ne: "" } } },
+          { $group: { _id: "$category", count: { $sum: 1 } } }
+        ]).toArray();
+
+        const formattedCategoryData = categoryData.map(item => ({
+          name: item._id,
+          value: item.count
+        }));
+
+        res.send({
+          totalUsers,
+          totalArtists,
+          artworksSold,
+          totalRevenue,
+          salesData: formattedSalesData,
+          categoryData: formattedCategoryData
+        });
+      } catch (error) {
+        console.error("Analytics Error:", error);
+        res.status(500).send({ error: 'Failed to fetch analytics' });
+      }
+    });
+
     app.get('/api/users', async (req, res) => {
       const result = await usersCollection.find().toArray();
       res.send(result);
@@ -316,6 +370,16 @@ async function run() {
         { $set: { role } }
       );
       res.send(result);
+    });
+
+    app.delete('/api/users/:id', async (req, res) => {
+      const { id } = req.params;
+      try {
+        const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to delete user' });
+      }
     });
 
     // ==========================================
