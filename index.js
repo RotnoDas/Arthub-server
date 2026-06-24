@@ -86,6 +86,8 @@ async function run() {
       const category = req.query.category;
       const minPrice = req.query.minPrice;
       const maxPrice = req.query.maxPrice;
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 6;
       const query = {};
 
       if (search) {
@@ -97,25 +99,27 @@ async function run() {
       }
       
       if (category) {
-        // e.g. ?category=Painting,Digital,Sculpture
         query.category = { $in: category.split(',') };
       }
 
       if (minPrice || maxPrice) {
-        // Note: MongoDB handles numbers, so we parse floats. If the DB stores prices as strings, this might need Number() conversion depending on schema. Assuming prices are numbers.
         query.price = {};
         if (minPrice && !isNaN(minPrice)) query.price.$gte = parseFloat(minPrice);
         if (maxPrice && !isNaN(maxPrice)) query.price.$lte = parseFloat(maxPrice);
       }
 
-      let cursor = artworksCollection.find(query).sort({ createdAt: -1 });
-      
-      if (req.query.limit) {
-        cursor = cursor.limit(parseInt(req.query.limit));
-      }
+      const totalItems = await artworksCollection.countDocuments(query);
+      const totalPages = Math.ceil(totalItems / limit);
+      const skip = (page - 1) * limit;
 
-      const result = await cursor.toArray();
-      res.send(result);
+      const artworks = await artworksCollection.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).toArray();
+
+      res.send({
+          artworks,
+          totalPages,
+          totalItems,
+          currentPage: page
+      });
     });
 
     app.get('/api/single-artworks/:id', async (req, res) => {
