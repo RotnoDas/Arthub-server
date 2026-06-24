@@ -33,6 +33,7 @@ async function run() {
     const usersCollection = db.collection('user');
     const purchaseCollection = db.collection('purchases');
     const paymentCollection = db.collection('payments');
+    const commentsCollection = db.collection('comments');
 
     // ==========================================
     // ARTIST ROUTES
@@ -146,6 +147,24 @@ async function run() {
     app.delete('/api/artworks/:id', async (req, res) => {
       const { id } = req.params;
       const result = await artworksCollection.deleteOne({ _id: new ObjectId(id) });
+      res.send(result);
+    });
+
+    // ==========================================
+    // COMMENTS ROUTES
+    // ==========================================
+    app.get('/api/comments/:artworkId', async (req, res) => {
+      const { artworkId } = req.params;
+      const result = await commentsCollection.find({ artworkId }).sort({ createdAt: -1 }).toArray();
+      res.send(result);
+    });
+
+    app.post('/api/comments', async (req, res) => {
+      const commentData = req.body;
+      const result = await commentsCollection.insertOne({
+        ...commentData,
+        createdAt: new Date()
+      });
       res.send(result);
     });
 
