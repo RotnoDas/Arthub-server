@@ -84,18 +84,28 @@ async function run() {
     app.get('/api/artworks', async (req, res) => {
       const search = req.query.search;
       const category = req.query.category;
+      const minPrice = req.query.minPrice;
+      const maxPrice = req.query.maxPrice;
       const query = {};
 
       if (search) {
-        query.title = {
-          $regex: search,
-          $options: 'i',
-        };
+        query.$or = [
+          { title: { $regex: search, $options: 'i' } },
+          { artistEmail: { $regex: search, $options: 'i' } },
+          { artistName: { $regex: search, $options: 'i' } }
+        ];
       }
       
       if (category) {
         // e.g. ?category=Painting,Digital,Sculpture
         query.category = { $in: category.split(',') };
+      }
+
+      if (minPrice || maxPrice) {
+        // Note: MongoDB handles numbers, so we parse floats. If the DB stores prices as strings, this might need Number() conversion depending on schema. Assuming prices are numbers.
+        query.price = {};
+        if (minPrice && !isNaN(minPrice)) query.price.$gte = parseFloat(minPrice);
+        if (maxPrice && !isNaN(maxPrice)) query.price.$lte = parseFloat(maxPrice);
       }
 
       let cursor = artworksCollection.find(query).sort({ createdAt: -1 });
@@ -159,12 +169,42 @@ async function run() {
       res.send(result);
     });
 
-    app.post('/api/comments', async (req, res) => {
+    app.post('/api/artworks/:id/comments', async (req, res) => {
+      const { id } = req.params;
       const commentData = req.body;
+      const { userEmail } = commentData;
+
+      // Verify the user actually purchased the artwork
+      const hasPurchased = await purchaseCollection.findOne({ 
+        artworkId: id, 
+        buyerEmail: userEmail 
+      });
+
+      if (!hasPurchased) {
+        return res.status(403).send({ error: 'Only verified buyers can leave a comment.' });
+      }
+
       const result = await commentsCollection.insertOne({
         ...commentData,
+        artworkId: id,
         createdAt: new Date()
       });
+      res.send(result);
+    });
+
+    app.patch('/api/comments/:id', async (req, res) => {
+      const { id } = req.params;
+      const { text } = req.body;
+      const result = await commentsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { text, updatedAt: new Date() } }
+      );
+      res.send(result);
+    });
+
+    app.delete('/api/comments/:id', async (req, res) => {
+      const { id } = req.params;
+      const result = await commentsCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
     });
 
