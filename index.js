@@ -97,7 +97,12 @@ async function run() {
         query.category = { $in: category.split(',') };
       }
 
-      const cursor = artworksCollection.find(query);
+      let cursor = artworksCollection.find(query).sort({ createdAt: -1 });
+      
+      if (req.query.limit) {
+        cursor = cursor.limit(parseInt(req.query.limit));
+      }
+
       const result = await cursor.toArray();
       res.send(result);
     });
