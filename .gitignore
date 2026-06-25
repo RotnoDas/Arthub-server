@@ -28,3 +28,5 @@ lerna-debug.log*
 
 # Windows
 Thumbs.db
+
+.vercel
