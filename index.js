@@ -146,6 +146,7 @@ async function run() {
 
     app.post('/api/artworks', async (req, res) => {
       const data = req.body;
+      if (data.price !== undefined) data.price = parseFloat(data.price);
       // Note: Subscription limits will be implemented here later per user request.
       
       const result = await artworksCollection.insertOne({
@@ -159,6 +160,7 @@ async function run() {
     app.patch('/api/artworks/:id', async (req, res) => {
       const { id } = req.params;
       const updateData = req.body;
+      if (updateData.price !== undefined) updateData.price = parseFloat(updateData.price);
 
       const result = await artworksCollection.updateOne(
         { _id: new ObjectId(id) },
@@ -325,8 +327,36 @@ async function run() {
     // ==========================================
     app.get('/api/artworks/purchase/:email', async (req, res) => {
       const { email } = req.params;
-      const result = await purchaseCollection.find({ buyerEmail: email }).toArray();
-      res.send(result);
+      try {
+        const purchases = await purchaseCollection.aggregate([
+          { $match: { buyerEmail: email } },
+          { $addFields: { artworkObjId: { $toObjectId: "$artworkId" } } },
+          { 
+            $lookup: {
+              from: 'artworks',
+              localField: 'artworkObjId',
+              foreignField: '_id',
+              as: 'artworkDetails'
+            }
+          },
+          {
+            $addFields: {
+              artworkImage: { $arrayElemAt: ["$artworkDetails.image", 0] },
+              artistName: { $arrayElemAt: ["$artworkDetails.artistName", 0] }
+            }
+          },
+          {
+            $project: {
+              artworkDetails: 0,
+              artworkObjId: 0
+            }
+          }
+        ]).toArray();
+        res.send(purchases);
+      } catch (error) {
+        console.error("Error fetching purchases:", error);
+        res.status(500).send({ error: "Failed to fetch collection" });
+      }
     });
 
     app.post('/api/artworks/purchase', async (req, res) => {
@@ -410,6 +440,12 @@ async function run() {
       res.send(result);
     });
 
+    app.get('/api/purchases/artist/:email', async (req, res) => {
+      const email = req.params.email;
+      const result = await purchaseCollection.find({ artistEmail: email }).sort({ purchaseDate: -1 }).toArray();
+      res.send(result);
+    });
+
     // Admin Routes for Dashboard
     app.get('/api/admin/analytics', async (req, res) => {
       try {
@@ -487,6 +523,33 @@ async function run() {
         res.send(result);
       } catch (error) {
         res.status(500).send({ error: 'Failed to update user' });
+      }
+    });
+
+    app.patch('/api/users/update-profile/:email', async (req, res) => {
+      const { email } = req.params;
+      const updateData = req.body;
+      try {
+        const result = await usersCollection.updateOne(
+          { email: email },
+          { $set: updateData }
+        );
+        
+        // Propagate name and image changes to user's past comments
+        if (updateData.name || updateData.image) {
+          const commentUpdate = {};
+          if (updateData.name) commentUpdate.userName = updateData.name;
+          if (updateData.image) commentUpdate.avatar = updateData.image;
+          
+          await commentsCollection.updateMany(
+            { userEmail: email },
+            { $set: commentUpdate }
+          );
+        }
+
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to update user by email' });
       }
     });
 
