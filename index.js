@@ -1,9 +1,11 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-
 dotenv.config();
+
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -213,6 +215,105 @@ async function run() {
     });
 
     // ==========================================
+    // STRIPE CHECKOUT ROUTES
+    // ==========================================
+    app.post('/api/checkout/artwork', async (req, res) => {
+      try {
+        const { artworkId, artworkTitle, artistEmail, buyerEmail, amount, origin } = req.body;
+        
+        // 1. Check User Subscription and Limits
+        const user = await usersCollection.findOne({ email: buyerEmail });
+        if (!user) return res.status(404).send({ error: 'User not found' });
+
+        const tier = user.subscriptionTier || 'free';
+        const purchasesCount = await purchaseCollection.countDocuments({ buyerEmail });
+
+        let limit = 3;
+        if (tier === 'pro') limit = 9;
+        if (tier === 'premium') limit = Infinity;
+
+        if (purchasesCount >= limit) {
+          return res.status(403).send({ 
+            error: 'Purchase limit reached', 
+            message: `Your ${tier} subscription limits you to ${limit} artwork${limit === 1 ? '' : 's'}. You have already purchased ${purchasesCount}. Please upgrade your subscription to buy more.`
+          });
+        }
+
+        // 2. Create Stripe Checkout Session
+        const session = await stripe.checkout.sessions.create({
+          payment_method_types: ['card'],
+          customer_email: buyerEmail,
+          line_items: [
+            {
+              price_data: {
+                currency: 'usd',
+                product_data: { name: artworkTitle },
+                unit_amount: Math.round(amount * 100), // convert to cents
+              },
+              quantity: 1,
+            },
+          ],
+          mode: 'payment',
+          success_url: `${origin}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${origin}/artworks/${artworkId}?canceled=true`,
+          metadata: {
+            type: 'artwork',
+            artworkId: artworkId.toString(),
+            artworkTitle,
+            artistEmail,
+            buyerEmail,
+            amount: amount.toString()
+          }
+        });
+
+        res.send({ url: session.url });
+      } catch (error) {
+        console.error("Stripe Error:", error);
+        res.status(500).send({ error: error.message });
+      }
+    });
+
+    app.post('/api/checkout/subscription', async (req, res) => {
+      try {
+        const { buyerEmail, tier, origin } = req.body;
+        
+        let price = 0;
+        if (tier === 'pro') price = 9.99;
+        else if (tier === 'premium') price = 19.99;
+        else return res.status(400).send({ error: 'Invalid subscription tier' });
+
+        const session = await stripe.checkout.sessions.create({
+          payment_method_types: ['card'],
+          customer_email: buyerEmail,
+          line_items: [
+            {
+              price_data: {
+                currency: 'usd',
+                product_data: { name: `ArtHub ${tier.charAt(0).toUpperCase() + tier.slice(1)} Subscription` },
+                unit_amount: Math.round(price * 100),
+              },
+              quantity: 1,
+            },
+          ],
+          mode: 'payment', // using payment mode instead of subscription for simpler one-time handling for now as requested
+          success_url: `${origin}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${origin}/dashboard/user?canceled=true`,
+          metadata: {
+            type: 'subscription',
+            tier,
+            buyerEmail,
+            amount: price.toString()
+          }
+        });
+
+        res.send({ url: session.url });
+      } catch (error) {
+        console.error("Stripe Error:", error);
+        res.status(500).send({ error: error.message });
+      }
+    });
+
+    // ==========================================
     // PURCHASE & TRANSACTION ROUTES
     // ==========================================
     app.get('/api/artworks/purchase/:email', async (req, res) => {
@@ -359,6 +460,12 @@ async function run() {
 
     app.get('/api/users', async (req, res) => {
       const result = await usersCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.get('/api/users/:email', async (req, res) => {
+      const { email } = req.params;
+      const result = await usersCollection.findOne({ email });
       res.send(result);
     });
 
