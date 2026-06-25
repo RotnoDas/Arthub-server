@@ -43,7 +43,7 @@ async function run() {
     app.get('/api/artist/:email', async (req, res) => {
       const { email } = req.params;
       const result = await artistsCollection.findOne({ artistEmail: email });
-      res.send(result);
+      res.send(result || {});
     });
 
     app.post('/api/artists', async (req, res) => {
@@ -125,10 +125,17 @@ async function run() {
     });
 
     app.get('/api/single-artworks/:id', async (req, res) => {
-      const { id } = req.params;
-      const query = { _id: new ObjectId(id) };
-      const result = await artworksCollection.findOne(query);
-      res.send(result);
+      try {
+        const { id } = req.params;
+        const query = { _id: new ObjectId(id) };
+        const result = await artworksCollection.findOne(query);
+        if (!result) {
+          return res.status(404).send({ error: "Artwork not found" });
+        }
+        res.send(result);
+      } catch (error) {
+        res.status(400).send({ error: "Invalid ID format" });
+      }
     });
 
     app.get('/api/artworks/artist/:email', async (req, res) => {
@@ -466,7 +473,21 @@ async function run() {
     app.get('/api/users/:email', async (req, res) => {
       const { email } = req.params;
       const result = await usersCollection.findOne({ email });
-      res.send(result);
+      res.send(result || {});
+    });
+
+    app.patch('/api/users/:id', async (req, res) => {
+      const { id } = req.params;
+      const updateData = req.body;
+      try {
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateData }
+        );
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to update user' });
+      }
     });
 
     app.patch('/api/users/role/:id', async (req, res) => {
