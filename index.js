@@ -9,11 +9,17 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const port = process.env.PORT || 5000;
 
-app.use(cors());
+app.use(cors({
+    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    credentials: true,
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-internal-secret"]
+}));
 app.use(express.json());
 
 const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
+const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "dev-internal-secret";
 
 const verifyToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
@@ -32,9 +38,18 @@ const verifyToken = async (req, res, next) => {
         req.user = payload;
         next();
     } catch (error) {
-        console.error('Token validation failed:', error);
+        console.warn(`[verifyToken] Rejected: ${error.code || error.message}`);
         return res.status(401).json({ message: "Unauthorized: Token validation failed" });
     }
+};
+
+// Middleware for server-to-server calls (e.g. payment-success server component)
+const verifyInternalOrToken = async (req, res, next) => {
+    const internalSecret = req.headers['x-internal-secret'];
+    if (internalSecret && internalSecret === INTERNAL_API_SECRET) {
+        return next();
+    }
+    return verifyToken(req, res, next);
 };
 const uri = process.env.MONGO_URI;
 
@@ -234,9 +249,10 @@ async function run() {
     app.patch('/api/comments/:id', verifyToken, async (req, res) => {
       const { id } = req.params;
       const { text } = req.body;
+      // Save as 'comment' to match the field name used when comments are first created
       const result = await commentsCollection.updateOne(
         { _id: new ObjectId(id) },
-        { $set: { text, updatedAt: new Date() } }
+        { $set: { comment: text, updatedAt: new Date() } }
       );
       res.send(result);
     });
@@ -349,7 +365,7 @@ async function run() {
     // ==========================================
     // PURCHASE & TRANSACTION ROUTES
     // ==========================================
-    app.get('/api/artworks/purchase/:email', verifyToken, async (req, res) => {
+    app.get('/api/artworks/purchase/:email', verifyInternalOrToken, async (req, res) => {
       const { email } = req.params;
       try {
         const purchases = await purchaseCollection.aggregate([
@@ -383,7 +399,7 @@ async function run() {
       }
     });
 
-    app.post('/api/artworks/purchase', verifyToken, async (req, res) => {
+    app.post('/api/artworks/purchase', verifyInternalOrToken, async (req, res) => {
       const { amount, artworkId, artworkTitle, artistEmail, buyerEmail, paymentType, transactionId, paymentStatus } = req.body;
       
       const purchaseData = {
@@ -428,7 +444,7 @@ async function run() {
     // ==========================================
     // USER / SUBSCRIPTION ROUTES
     // ==========================================
-    app.patch('/api/users/upgrade-subscription/:email', verifyToken, async (req, res) => {
+    app.patch('/api/users/upgrade-subscription/:email', verifyInternalOrToken, async (req, res) => {
       const { email } = req.params;
       const { amount, transactionId, paymentStatus, paymentType, tier } = req.body;
 
@@ -580,8 +596,11 @@ async function run() {
     app.patch('/api/users/role/:id', verifyToken, async (req, res) => {
       const { id } = req.params;
       const { role } = req.body;
+      const query = { $or: [{ _id: id }] };
+      try { query.$or.push({ _id: new ObjectId(id) }); } catch (e) {}
+      
       const result = await usersCollection.updateOne(
-        { _id: new ObjectId(id) },
+        query,
         { $set: { role } }
       );
       res.send(result);
@@ -590,7 +609,13 @@ async function run() {
     app.delete('/api/users/:id', verifyToken, async (req, res) => {
       const { id } = req.params;
       try {
-        const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
+        const query = { $or: [{ _id: id }] };
+        try { query.$or.push({ _id: new ObjectId(id) }); } catch (e) {}
+        
+        // Delete user session from BetterAuth table as well to prevent ghost sessions
+        await db.collection("session").deleteMany({ userId: id });
+        
+        const result = await usersCollection.deleteOne(query);
         res.send(result);
       } catch (error) {
         res.status(500).send({ error: 'Failed to delete user' });
