@@ -12,6 +12,30 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
+const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
+
+const verifyToken = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res.status(401).json({ message: "Unauthorized: No token provided" });
+    }
+    const token = authHeader.split(" ")[1];
+    if(!token) {
+        return res.status(401).json({ message: "Unauthorized: Token format invalid" });
+    }
+    try {
+        const JWKS = createRemoteJWKSet(
+            new URL(`${CLIENT_URL}/api/auth/jwks`)
+        );
+        const { payload } = await jwtVerify(token, JWKS);
+        req.user = payload;
+        next();
+    } catch (error) {
+        console.error('Token validation failed:', error);
+        return res.status(401).json({ message: "Unauthorized: Token validation failed" });
+    }
+};
 const uri = process.env.MONGO_URI;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -46,7 +70,7 @@ async function run() {
       res.send(result || {});
     });
 
-    app.post('/api/artists', async (req, res) => {
+    app.post('/api/artists', verifyToken, async (req, res) => {
       const { artistName, avatar, portfolioWebsite, bio, artistEmail } = req.body;
       const addData = {
         artistName,
@@ -61,7 +85,7 @@ async function run() {
       res.send(result);
     });
 
-    app.patch('/api/artists/:id', async (req, res) => {
+    app.patch('/api/artists/:id', verifyToken, async (req, res) => {
       const { id } = req.params;
       const { artistName, avatar, portfolioWebsite, bio, artistEmail } = req.body;
       
@@ -138,13 +162,13 @@ async function run() {
       }
     });
 
-    app.get('/api/artworks/artist/:email', async (req, res) => {
+    app.get('/api/artworks/artist/:email', verifyToken, async (req, res) => {
       const { email } = req.params;
       const result = await artworksCollection.find({ artistEmail: email }).toArray();
       res.send(result);
     });
 
-    app.post('/api/artworks', async (req, res) => {
+    app.post('/api/artworks', verifyToken, async (req, res) => {
       const data = req.body;
       if (data.price !== undefined) data.price = parseFloat(data.price);
       // Note: Subscription limits will be implemented here later per user request.
@@ -157,7 +181,7 @@ async function run() {
       res.send(result);
     });
 
-    app.patch('/api/artworks/:id', async (req, res) => {
+    app.patch('/api/artworks/:id', verifyToken, async (req, res) => {
       const { id } = req.params;
       const updateData = req.body;
       if (updateData.price !== undefined) updateData.price = parseFloat(updateData.price);
@@ -169,7 +193,7 @@ async function run() {
       res.send(result);
     });
 
-    app.delete('/api/artworks/:id', async (req, res) => {
+    app.delete('/api/artworks/:id', verifyToken, async (req, res) => {
       const { id } = req.params;
       const result = await artworksCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
@@ -184,7 +208,7 @@ async function run() {
       res.send(result);
     });
 
-    app.post('/api/artworks/:id/comments', async (req, res) => {
+    app.post('/api/artworks/:id/comments', verifyToken, async (req, res) => {
       const { id } = req.params;
       const commentData = req.body;
       const { userEmail } = commentData;
@@ -207,7 +231,7 @@ async function run() {
       res.send(result);
     });
 
-    app.patch('/api/comments/:id', async (req, res) => {
+    app.patch('/api/comments/:id', verifyToken, async (req, res) => {
       const { id } = req.params;
       const { text } = req.body;
       const result = await commentsCollection.updateOne(
@@ -217,7 +241,7 @@ async function run() {
       res.send(result);
     });
 
-    app.delete('/api/comments/:id', async (req, res) => {
+    app.delete('/api/comments/:id', verifyToken, async (req, res) => {
       const { id } = req.params;
       const result = await commentsCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
@@ -226,7 +250,7 @@ async function run() {
     // ==========================================
     // STRIPE CHECKOUT ROUTES
     // ==========================================
-    app.post('/api/checkout/artwork', async (req, res) => {
+    app.post('/api/checkout/artwork', verifyToken, async (req, res) => {
       try {
         const { artworkId, artworkTitle, artistEmail, buyerEmail, amount, origin } = req.body;
         
@@ -282,7 +306,7 @@ async function run() {
       }
     });
 
-    app.post('/api/checkout/subscription', async (req, res) => {
+    app.post('/api/checkout/subscription', verifyToken, async (req, res) => {
       try {
         const { buyerEmail, tier, origin } = req.body;
         
@@ -325,7 +349,7 @@ async function run() {
     // ==========================================
     // PURCHASE & TRANSACTION ROUTES
     // ==========================================
-    app.get('/api/artworks/purchase/:email', async (req, res) => {
+    app.get('/api/artworks/purchase/:email', verifyToken, async (req, res) => {
       const { email } = req.params;
       try {
         const purchases = await purchaseCollection.aggregate([
@@ -359,7 +383,7 @@ async function run() {
       }
     });
 
-    app.post('/api/artworks/purchase', async (req, res) => {
+    app.post('/api/artworks/purchase', verifyToken, async (req, res) => {
       const { amount, artworkId, artworkTitle, artistEmail, buyerEmail, paymentType, transactionId, paymentStatus } = req.body;
       
       const purchaseData = {
@@ -404,7 +428,7 @@ async function run() {
     // ==========================================
     // USER / SUBSCRIPTION ROUTES
     // ==========================================
-    app.patch('/api/users/upgrade-subscription/:email', async (req, res) => {
+    app.patch('/api/users/upgrade-subscription/:email', verifyToken, async (req, res) => {
       const { email } = req.params;
       const { amount, transactionId, paymentStatus, paymentType, tier } = req.body;
 
@@ -434,20 +458,20 @@ async function run() {
       res.send(result);
     });
 
-    app.get('/api/payment/:email', async (req, res) => {
+    app.get('/api/payment/:email', verifyToken, async (req, res) => {
       const { email } = req.params;
       const result = await paymentCollection.find({ userEmail: email }).toArray();
       res.send(result);
     });
 
-    app.get('/api/purchases/artist/:email', async (req, res) => {
+    app.get('/api/purchases/artist/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
       const result = await purchaseCollection.find({ artistEmail: email }).sort({ purchaseDate: -1 }).toArray();
       res.send(result);
     });
 
     // Admin Routes for Dashboard
-    app.get('/api/admin/analytics', async (req, res) => {
+    app.get('/api/admin/analytics', verifyToken, async (req, res) => {
       try {
         const totalUsers = await usersCollection.countDocuments();
         const totalArtists = await usersCollection.countDocuments({ role: 'artist' });
@@ -501,7 +525,7 @@ async function run() {
       }
     });
 
-    app.get('/api/users', async (req, res) => {
+    app.get('/api/users', verifyToken, async (req, res) => {
       const result = await usersCollection.find().toArray();
       res.send(result);
     });
@@ -512,7 +536,7 @@ async function run() {
       res.send(result || {});
     });
 
-    app.patch('/api/users/:id', async (req, res) => {
+    app.patch('/api/users/:id', verifyToken, async (req, res) => {
       const { id } = req.params;
       const updateData = req.body;
       try {
@@ -526,7 +550,7 @@ async function run() {
       }
     });
 
-    app.patch('/api/users/update-profile/:email', async (req, res) => {
+    app.patch('/api/users/update-profile/:email', verifyToken, async (req, res) => {
       const { email } = req.params;
       const updateData = req.body;
       try {
@@ -553,7 +577,7 @@ async function run() {
       }
     });
 
-    app.patch('/api/users/role/:id', async (req, res) => {
+    app.patch('/api/users/role/:id', verifyToken, async (req, res) => {
       const { id } = req.params;
       const { role } = req.body;
       const result = await usersCollection.updateOne(
@@ -563,7 +587,7 @@ async function run() {
       res.send(result);
     });
 
-    app.delete('/api/users/:id', async (req, res) => {
+    app.delete('/api/users/:id', verifyToken, async (req, res) => {
       const { id } = req.params;
       try {
         const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
@@ -576,7 +600,7 @@ async function run() {
     // ==========================================
     // ADMIN SEED ROUTE (run once to create admin)
     // ==========================================
-    app.post('/api/admin/promote', async (req, res) => {
+    app.post('/api/admin/promote', verifyToken, async (req, res) => {
       const { email } = req.body;
       if (!email) return res.status(400).send({ error: 'Email required' });
       
@@ -591,7 +615,7 @@ async function run() {
       res.send({ success: true, message: `${email} promoted to admin.` });
     });
 
-    app.get('/api/transactions', async (req, res) => {
+    app.get('/api/transactions', verifyToken, async (req, res) => {
       const result = await paymentCollection.find().toArray();
       res.send(result);
     });
