@@ -45,7 +45,7 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-// Middleware for server-to-server calls (e.g. payment-success server component)
+// Middleware for server-to-server calls
 const verifyInternalOrToken = async (req, res, next) => {
   const internalSecret = req.headers['x-internal-secret'];
   if (internalSecret && internalSecret === INTERNAL_API_SECRET) {
@@ -78,9 +78,7 @@ async function run() {
     const paymentCollection = db.collection('payments');
     const commentsCollection = db.collection('comments');
 
-    // ==========================================
     // ARTIST ROUTES
-    // ==========================================
     app.get('/api/artist/:email', async (req, res) => {
       const { email } = req.params;
       const result = await artistsCollection.findOne({ artistEmail: email });
@@ -121,9 +119,7 @@ async function run() {
       res.send(result);
     });
 
-    // ==========================================
     // ARTWORK ROUTES
-    // ==========================================
     app.get('/api/artworks', async (req, res) => {
       const search = req.query.search;
       const category = req.query.category;
@@ -216,9 +212,7 @@ async function run() {
       res.send(result);
     });
 
-    // ==========================================
     // COMMENTS ROUTES
-    // ==========================================
     app.get('/api/comments/:artworkId', async (req, res) => {
       const { artworkId } = req.params;
       const result = await commentsCollection.find({ artworkId }).sort({ createdAt: -1 }).toArray();
@@ -251,7 +245,6 @@ async function run() {
     app.patch('/api/comments/:id', verifyToken, async (req, res) => {
       const { id } = req.params;
       const { text } = req.body;
-      // Save as 'comment' to match the field name used when comments are first created
       const result = await commentsCollection.updateOne(
         { _id: new ObjectId(id) },
         { $set: { comment: text, updatedAt: new Date() } }
@@ -265,9 +258,7 @@ async function run() {
       res.send(result);
     });
 
-    // ==========================================
     // STRIPE CHECKOUT ROUTES
-    // ==========================================
     app.post('/api/checkout/artwork', verifyToken, async (req, res) => {
       try {
         const { artworkId, artworkTitle, artistEmail, buyerEmail, amount, origin } = req.body;
@@ -299,7 +290,7 @@ async function run() {
               price_data: {
                 currency: 'usd',
                 product_data: { name: artworkTitle },
-                unit_amount: Math.round(amount * 100), // convert to cents
+                unit_amount: Math.round(amount * 100),
               },
               quantity: 1,
             },
@@ -346,7 +337,7 @@ async function run() {
               quantity: 1,
             },
           ],
-          mode: 'payment', // using payment mode instead of subscription for simpler one-time handling for now as requested
+          mode: 'payment',
           success_url: `${origin}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
           cancel_url: `${origin}/dashboard/user?canceled=true`,
           metadata: {
@@ -364,9 +355,7 @@ async function run() {
       }
     });
 
-    // ==========================================
     // PURCHASE & TRANSACTION ROUTES
-    // ==========================================
     app.get('/api/artworks/purchase/:email', verifyInternalOrToken, async (req, res) => {
       const { email } = req.params;
       try {
@@ -443,9 +432,7 @@ async function run() {
       res.send(purchaseRes);
     });
 
-    // ==========================================
     // USER / SUBSCRIPTION ROUTES
-    // ==========================================
     app.patch('/api/users/upgrade-subscription/:email', verifyInternalOrToken, async (req, res) => {
       const { email } = req.params;
       const { amount, transactionId, paymentStatus, paymentType, tier } = req.body;
@@ -577,7 +564,6 @@ async function run() {
           { $set: updateData }
         );
 
-        // Propagate name and image changes to user's past comments
         if (updateData.name || updateData.image) {
           const commentUpdate = {};
           if (updateData.name) commentUpdate.userName = updateData.name;
@@ -614,7 +600,6 @@ async function run() {
         const query = { $or: [{ _id: id }] };
         try { query.$or.push({ _id: new ObjectId(id) }); } catch (e) { }
 
-        // Delete user session from BetterAuth table as well to prevent ghost sessions
         await db.collection("session").deleteMany({ userId: id });
 
         const result = await usersCollection.deleteOne(query);
@@ -624,9 +609,7 @@ async function run() {
       }
     });
 
-    // ==========================================
-    // ADMIN SEED ROUTE (run once to create admin)
-    // ==========================================
+    // ADMIN SEED ROUTE
     app.post('/api/admin/promote', verifyToken, async (req, res) => {
       const { email } = req.body;
       if (!email) return res.status(400).send({ error: 'Email required' });

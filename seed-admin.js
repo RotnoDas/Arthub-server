@@ -1,6 +1,3 @@
-// seed-admin.js - Run this ONCE to create the admin user
-// Usage: node seed-admin.js
-
 const { MongoClient } = require("mongodb");
 const { createHash, randomBytes } = require("crypto");
 require("dotenv").config();
@@ -9,9 +6,6 @@ const ADMIN_EMAIL = "admin@arthub.com";
 const ADMIN_PASSWORD = "Admin@123";
 const ADMIN_NAME = "ArtHub Admin";
 
-// Simple password hasher compatible with BetterAuth (scrypt/argon2)
-// BetterAuth uses its own hashing - we'll set the role via direct DB insert
-// and use the BetterAuth API to register then promote to admin
 
 async function seed() {
   const client = new MongoClient(process.env.MONGO_URI);
