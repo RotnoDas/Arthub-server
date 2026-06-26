@@ -1,3 +1,5 @@
+const dns = require("dns");
+dns.setServers(["8.8.8.8"], ["8.8.4.4"]);
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
@@ -10,10 +12,10 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 app.use(cors({
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
-    credentials: true,
-    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "x-internal-secret"]
+  origin: process.env.CLIENT_URL || "http://localhost:3000",
+  credentials: true,
+  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-internal-secret"]
 }));
 app.use(express.json());
 
@@ -22,34 +24,34 @@ const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "dev-internal-secret";
 
 const verifyToken = async (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        return res.status(401).json({ message: "Unauthorized: No token provided" });
-    }
-    const token = authHeader.split(" ")[1];
-    if(!token) {
-        return res.status(401).json({ message: "Unauthorized: Token format invalid" });
-    }
-    try {
-        const JWKS = createRemoteJWKSet(
-            new URL(`${CLIENT_URL}/api/auth/jwks`)
-        );
-        const { payload } = await jwtVerify(token, JWKS);
-        req.user = payload;
-        next();
-    } catch (error) {
-        console.warn(`[verifyToken] Rejected: ${error.code || error.message}`);
-        return res.status(401).json({ message: "Unauthorized: Token validation failed" });
-    }
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ message: "Unauthorized: No token provided" });
+  }
+  const token = authHeader.split(" ")[1];
+  if (!token) {
+    return res.status(401).json({ message: "Unauthorized: Token format invalid" });
+  }
+  try {
+    const JWKS = createRemoteJWKSet(
+      new URL(`${CLIENT_URL}/api/auth/jwks`)
+    );
+    const { payload } = await jwtVerify(token, JWKS);
+    req.user = payload;
+    next();
+  } catch (error) {
+    console.warn(`[verifyToken] Rejected: ${error.code || error.message}`);
+    return res.status(401).json({ message: "Unauthorized: Token validation failed" });
+  }
 };
 
 // Middleware for server-to-server calls (e.g. payment-success server component)
 const verifyInternalOrToken = async (req, res, next) => {
-    const internalSecret = req.headers['x-internal-secret'];
-    if (internalSecret && internalSecret === INTERNAL_API_SECRET) {
-        return next();
-    }
-    return verifyToken(req, res, next);
+  const internalSecret = req.headers['x-internal-secret'];
+  if (internalSecret && internalSecret === INTERNAL_API_SECRET) {
+    return next();
+  }
+  return verifyToken(req, res, next);
 };
 const uri = process.env.MONGO_URI;
 
@@ -66,7 +68,7 @@ async function run() {
   try {
     // Connect the client to the server (optional starting in v4.7)
     // await client.connect();
-    
+
     // Database and Collections
     const db = client.db(process.env.DB_NAME || 'arthub');
     const artistsCollection = db.collection('artists');
@@ -103,7 +105,7 @@ async function run() {
     app.patch('/api/artists/:id', verifyToken, async (req, res) => {
       const { id } = req.params;
       const { artistName, avatar, portfolioWebsite, bio, artistEmail } = req.body;
-      
+
       const updateData = {
         artistName,
         avatar,
@@ -138,7 +140,7 @@ async function run() {
           { artistName: { $regex: search, $options: 'i' } }
         ];
       }
-      
+
       if (category) {
         query.category = { $in: category.split(',') };
       }
@@ -156,10 +158,10 @@ async function run() {
       const artworks = await artworksCollection.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).toArray();
 
       res.send({
-          artworks,
-          totalPages,
-          totalItems,
-          currentPage: page
+        artworks,
+        totalPages,
+        totalItems,
+        currentPage: page
       });
     });
 
@@ -187,7 +189,7 @@ async function run() {
       const data = req.body;
       if (data.price !== undefined) data.price = parseFloat(data.price);
       // Note: Subscription limits will be implemented here later per user request.
-      
+
       const result = await artworksCollection.insertOne({
         ...data,
         status: 'available',
@@ -229,9 +231,9 @@ async function run() {
       const { userEmail } = commentData;
 
       // Verify the user actually purchased the artwork
-      const hasPurchased = await purchaseCollection.findOne({ 
-        artworkId: id, 
-        buyerEmail: userEmail 
+      const hasPurchased = await purchaseCollection.findOne({
+        artworkId: id,
+        buyerEmail: userEmail
       });
 
       if (!hasPurchased) {
@@ -269,7 +271,7 @@ async function run() {
     app.post('/api/checkout/artwork', verifyToken, async (req, res) => {
       try {
         const { artworkId, artworkTitle, artistEmail, buyerEmail, amount, origin } = req.body;
-        
+
         // 1. Check User Subscription and Limits
         const user = await usersCollection.findOne({ email: buyerEmail });
         if (!user) return res.status(404).send({ error: 'User not found' });
@@ -282,8 +284,8 @@ async function run() {
         if (tier === 'premium') limit = Infinity;
 
         if (purchasesCount >= limit) {
-          return res.status(403).send({ 
-            error: 'Purchase limit reached', 
+          return res.status(403).send({
+            error: 'Purchase limit reached',
             message: `Your ${tier} subscription limits you to ${limit} artwork${limit === 1 ? '' : 's'}. You have already purchased ${purchasesCount}. Please upgrade your subscription to buy more.`
           });
         }
@@ -325,7 +327,7 @@ async function run() {
     app.post('/api/checkout/subscription', verifyToken, async (req, res) => {
       try {
         const { buyerEmail, tier, origin } = req.body;
-        
+
         let price = 0;
         if (tier === 'pro') price = 9.99;
         else if (tier === 'premium') price = 19.99;
@@ -371,7 +373,7 @@ async function run() {
         const purchases = await purchaseCollection.aggregate([
           { $match: { buyerEmail: email } },
           { $addFields: { artworkObjId: { $toObjectId: "$artworkId" } } },
-          { 
+          {
             $lookup: {
               from: 'artworks',
               localField: 'artworkObjId',
@@ -401,7 +403,7 @@ async function run() {
 
     app.post('/api/artworks/purchase', verifyInternalOrToken, async (req, res) => {
       const { amount, artworkId, artworkTitle, artistEmail, buyerEmail, paymentType, transactionId, paymentStatus } = req.body;
-      
+
       const purchaseData = {
         artworkId,
         artworkTitle,
@@ -492,7 +494,7 @@ async function run() {
         const totalUsers = await usersCollection.countDocuments();
         const totalArtists = await usersCollection.countDocuments({ role: 'artist' });
         const artworksSold = await artworksCollection.countDocuments({ status: 'sold' });
-        
+
         const revenueAggregation = await paymentCollection.aggregate([
           { $group: { _id: null, totalRevenue: { $sum: { $toDouble: "$amount" } } } }
         ]).toArray();
@@ -574,13 +576,13 @@ async function run() {
           { email: email },
           { $set: updateData }
         );
-        
+
         // Propagate name and image changes to user's past comments
         if (updateData.name || updateData.image) {
           const commentUpdate = {};
           if (updateData.name) commentUpdate.userName = updateData.name;
           if (updateData.image) commentUpdate.avatar = updateData.image;
-          
+
           await commentsCollection.updateMany(
             { userEmail: email },
             { $set: commentUpdate }
@@ -597,8 +599,8 @@ async function run() {
       const { id } = req.params;
       const { role } = req.body;
       const query = { $or: [{ _id: id }] };
-      try { query.$or.push({ _id: new ObjectId(id) }); } catch (e) {}
-      
+      try { query.$or.push({ _id: new ObjectId(id) }); } catch (e) { }
+
       const result = await usersCollection.updateOne(
         query,
         { $set: { role } }
@@ -610,11 +612,11 @@ async function run() {
       const { id } = req.params;
       try {
         const query = { $or: [{ _id: id }] };
-        try { query.$or.push({ _id: new ObjectId(id) }); } catch (e) {}
-        
+        try { query.$or.push({ _id: new ObjectId(id) }); } catch (e) { }
+
         // Delete user session from BetterAuth table as well to prevent ghost sessions
         await db.collection("session").deleteMany({ userId: id });
-        
+
         const result = await usersCollection.deleteOne(query);
         res.send(result);
       } catch (error) {
@@ -628,12 +630,12 @@ async function run() {
     app.post('/api/admin/promote', verifyToken, async (req, res) => {
       const { email } = req.body;
       if (!email) return res.status(400).send({ error: 'Email required' });
-      
+
       const result = await usersCollection.updateOne(
         { email },
         { $set: { role: 'admin' } }
       );
-      
+
       if (result.matchedCount === 0) {
         return res.status(404).send({ error: 'User not found. Register first at /register.' });
       }
